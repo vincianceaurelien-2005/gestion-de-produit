@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Liste & Mise à jour</title>
+  <link rel="stylesheet" href="style.css"/>
+<script src="vue.global.prod.js"></script>
+<script src="axios.min.js"></script>
+<script src="chart.umd.min.js"></script>
+  <script src="navbar.js"></script>
+</head>
+<body>
+  <div class="bg-fx"></div>
+  <div class="bg-grid"></div>
+  <div id="navbar"></div>
+
+  <div id="app">
+    <div class="page">
+      <div class="page-head">
+        <h1>📋 Listes des produits</h1>
+        <p>Consultez, modifiez ou supprimez les produits enregistrés.</p>
+      </div>
+
+      <!-- Alert global -->
+      <div v-if="msg" :class="['alert', ok?'alert-success':'alert-error']" style="margin-bottom:16px;">
+        {{ ok ? '✅' : '❌' }} {{ msg }}
+      </div>
+
+      <!-- Table card -->
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div class="card-head" style="padding:18px 22px;">
+          <div class="card-title">
+            📦 Produits <span class="badge">{{ produits.length }}</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input class="search-input" v-model="search" placeholder="🔍 Rechercher…"/>
+            <button class="btn btn-ghost btn-sm" @click="charger">↺ Actualiser</button>
+          </div>
+        </div>
+
+        <div class="tbl-wrap">
+          <!-- Loading -->
+          <div v-if="loading" style="text-align:center;padding:48px;color:var(--muted);">
+            <span class="spin" style="width:20px;height:20px;border-top-color:var(--accent);border-color:rgba(59,130,246,0.15);"></span>
+            <span style="margin-left:10px;">Chargement…</span>
+          </div>
+
+          <table v-else>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>N° Produit</th>
+                <th>Désignation</th>
+                <th>Prix (Ar)</th>
+                <th>Quantité</th>
+                <th>Montant = prix×qté (Ar)</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="liste.length === 0">
+                <td colspan="7" style="text-align:center;color:var(--muted);padding:40px;">
+                  Aucun produit trouvé.
+                </td>
+              </tr>
+              <tr v-for="(p,i) in liste" :key="p.numProduit">
+                <td><span class="badge">{{ i+1 }}</span></td>
+                <td style="font-family:'Syne',sans-serif;font-weight:700;color:var(--muted);">#{{ p.numProduit }}</td>
+                <td>
+                  <input v-if="p._edit" v-model="p.design" style="min-width:160px;"/>
+                  <span v-else>{{ p.design }}</span>
+                </td>
+                <td>
+                  <input v-if="p._edit" v-model="p.prix" type="number" step="0.01" style="width:110px;"/>
+                  <span v-else>{{ Number(p.prix).toLocaleString('fr-FR') }}</span>
+                </td>
+                <td>
+                  <input v-if="p._edit" v-model="p.quantite" type="number" style="width:80px;"/>
+                  <span v-else>{{ p.quantite }}</span>
+                </td>
+                <td style="font-family:'Syne',sans-serif;font-weight:700;color:var(--accent);">
+                  {{ (p.prix * p.quantite).toLocaleString('fr-FR') }}
+                </td>
+                <td>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap;">
+                    <template v-if="p._edit">
+                      <button class="btn btn-success btn-sm" @click="sauver(p)">💾 Sauver</button>
+                      <button class="btn btn-ghost   btn-sm" @click="annuler(p)">✖</button>
+                    </template>
+                    <template v-else>
+                      <button class="btn btn-warn   btn-sm" @click="editer(p)">✏️ Modifier</button>
+                      <button class="btn btn-danger btn-sm" @click="demanderSupp(p)">🗑️</button>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+            <tfoot v-if="liste.length">
+              <tr>
+                <td colspan="5" style="color:var(--muted);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;">
+                  Total général
+                </td>
+                <td style="color:var(--accent);font-size:16px;">{{ totalGen.toLocaleString('fr-FR') }} Ar</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal suppression -->
+    <div class="modal-overlay" v-if="toDelete" @click.self="toDelete=null">
+      <div class="modal">
+        <div class="modal-icon">🗑️</div>
+        <div class="modal-title">Confirmer la suppression</div>
+        <div class="modal-body">
+          Voulez-vous supprimer <strong style="color:var(--text)">{{ toDelete.design }}</strong> ?<br>
+          Cette action est <strong style="color:var(--red)">irréversible</strong>.
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-danger" @click="confirmerSupp">Oui, supprimer</button>
+          <button class="btn btn-ghost"  @click="toDelete=null">Annuler</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer"><strong></strong>GestionProduit</div>
+
+  <script>
+    renderNavbar('liste');
+    const { createApp } = Vue;
+    const API = 'http://localhost/AurelienVinciance/backend/produits.php';
+
+    createApp({
+      data() { return { produits:[], search:'', msg:'', ok:false, loading:false, toDelete:null }; },
+      computed: {
+        liste() {
+          const q = this.search.trim().toLowerCase();
+          return q ? this.produits.filter(p => p.design.toLowerCase().includes(q)) : this.produits;
+        },
+        totalGen() { return this.liste.reduce((s,p) => s + parseFloat(p.prix)*parseInt(p.quantite), 0); }
+      },
+      mounted() { this.charger(); },
+      methods: {
+        async charger() {
+          this.loading = true;
+          try {
+            const r = await axios.get(API);
+            this.produits = r.data.data.map(p => ({...p, _edit:false, _bak:null}));
+          } catch { this.flash('Erreur de chargement', false); }
+          finally { this.loading = false; }
+        },
+        editer(p) {
+          p._bak = {design:p.design, prix:p.prix, quantite:p.quantite};
+          p._edit = true;
+        },
+        annuler(p) {
+          Object.assign(p, p._bak); p._edit = false;
+        },
+        async sauver(p) {
+          try {
+            const r = await axios.put(API, {
+              numProduit: p.numProduit,
+              design:     p.design,
+              prix:       parseFloat(p.prix),
+              quantite:   parseInt(p.quantite)
+            });
+            p._edit = false;
+            this.flash(r.data.message, r.data.success);
+          } catch(e) { this.flash(e.response?.data?.message || 'Modification échouée', false); }
+        },
+        demanderSupp(p) { this.toDelete = p; },
+        async confirmerSupp() {
+          try {
+            const r = await axios.delete(API, {data:{numProduit:this.toDelete.numProduit}});
+            this.flash(r.data.message, r.data.success);
+            this.toDelete = null;
+            this.charger();
+          } catch(e) { this.flash(e.response?.data?.message || 'Suppression échouée', false); this.toDelete = null; }
+        },
+        flash(m, s) { this.msg = m; this.ok = s; setTimeout(() => this.msg='', 4000); }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

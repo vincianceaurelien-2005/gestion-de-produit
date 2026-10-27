@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Bilan & Graphique </title>
+  <link rel="stylesheet" href="style.css"/>
+  <script src="vue.global.prod.js"></script>
+<script src="axios.min.js"></script>
+<script src="chart.umd.min.js"></script>
+  <script src="navbar.js"></script>
+</head>
+<body>
+  <div class="bg-fx"></div>
+  <div class="bg-grid"></div>
+  <div id="navbar"></div>
+
+  <div id="app">
+    <div class="page">
+      <div class="page-head">
+        <h1>📊 Bilan & Graphique</h1>
+        <p>Statistiques et visualisation des montants de vos produits.</p>
+      </div>
+
+      <!-- Stats -->
+      <div class="stats-row">
+        <div class="stat-card stat-total">
+          <div class="stat-label">Σ Montant Total</div>
+          <div class="stat-val">{{ fmt(total) }} Ar</div>
+          <div class="stat-sub">{{ produits.length }} produits · prix × quantité</div>
+        </div>
+        <div class="stat-card stat-min">
+          <div class="stat-label">⬇️ Montant Minimal</div>
+          <div class="stat-val">{{ fmt(minVal) }} Ar</div>
+          <div class="stat-sub">{{ minNom }}</div>
+        </div>
+        <div class="stat-card stat-max">
+          <div class="stat-label">⬆️ Montant Maximal</div>
+          <div class="stat-val">{{ fmt(maxVal) }} Ar</div>
+          <div class="stat-sub">{{ maxNom }}</div>
+        </div>
+      </div>
+
+      <!-- Graphique -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">📈 Visualisation</div>
+          <div class="chart-tabs">
+            <button :class="['ctab', type==='bar'  ?'active':'']" @click="switchType('bar')">📊 Histogramme</button>
+            <button :class="['ctab', type==='pie'  ?'active':'']" @click="switchType('pie')">🥧 Camembert</button>
+            <button :class="['ctab', type==='line' ?'active':'']" @click="switchType('line')">📈 Courbe</button>
+          </div>
+        </div>
+        <div style="position:relative;height:360px;">
+          <canvas id="chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Tableau récap -->
+      <div class="card" style="padding:0;overflow:hidden;">
+        <div style="padding:18px 22px;border-bottom:1px solid var(--border);">
+          <div class="card-title">📋 Récapitulatif par produit</div>
+        </div>
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>N° Produit</th>
+                <th>Désignation</th>
+                <th>Prix (Ar)</th>
+                <th>Quantité</th>
+                <th>Montant = prix×qté (Ar)</th>
+                <th>Part du total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="p in produits" :key="p.numProduit">
+                <td style="font-family:'Syne',sans-serif;font-weight:700;color:var(--muted);">#{{ p.numProduit }}</td>
+                <td>{{ p.design }}</td>
+                <td>{{ fmt(p.prix) }}</td>
+                <td>{{ p.quantite }}</td>
+                <td style="font-family:'Syne',sans-serif;font-weight:700;color:var(--accent);">{{ fmt(p.prix * p.quantite) }}</td>
+                <td>
+                  <div class="prog-wrap">
+                    <div class="prog-bar"><div class="prog-fill" :style="{width: pct(p)+'%'}"></div></div>
+                    <span class="prog-pct">{{ pct(p).toFixed(1) }}%</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colspan="4" style="color:var(--muted);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;">Total</td>
+                <td style="color:var(--accent);font-size:16px;">{{ fmt(total) }} Ar</td>
+                <td style="color:var(--muted);">100 %</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer"><strong></strong> GestionProduit</div>
+
+  <script>
+    renderNavbar('bilan');
+    const { createApp } = Vue;
+    const API = 'http://localhost/AurelienVinciance/backend/produits.php';
+
+    const COLORS = [
+      'rgba(59,130,246,0.75)','rgba(139,92,246,0.75)','rgba(16,185,129,0.75)',
+      'rgba(245,158,11,0.75)','rgba(239,68,68,0.75)', 'rgba(6,182,212,0.75)',
+      'rgba(249,115,22,0.75)','rgba(236,72,153,0.75)'
+    ];
+    const BORDERS = COLORS.map(c => c.replace('0.75','1'));
+
+    createApp({
+      data() { return { produits:[], type:'bar', chart:null }; },
+      computed: {
+        montants() { return this.produits.map(p => parseFloat(p.prix)*parseInt(p.quantite)); },
+        total()    { return this.montants.reduce((a,b) => a+b, 0); },
+        minVal()   { return this.montants.length ? Math.min(...this.montants) : 0; },
+        maxVal()   { return this.montants.length ? Math.max(...this.montants) : 0; },
+        minNom()   { if (!this.produits.length) return ''; return this.produits[this.montants.indexOf(this.minVal)]?.design||''; },
+        maxNom()   { if (!this.produits.length) return ''; return this.produits[this.montants.indexOf(this.maxVal)]?.design||''; },
+      },
+      async mounted() {
+        await this.charger();
+        this.buildChart();
+      },
+      methods: {
+        fmt(v) { return Number(v).toLocaleString('fr-FR'); },
+        pct(p) { return this.total ? (parseFloat(p.prix)*parseInt(p.quantite)/this.total*100) : 0; },
+        async charger() {
+          try {
+            const r = await axios.get(API);
+            this.produits = r.data.data;
+          } catch(e) { console.error(e); }
+        },
+        buildChart() {
+          if (this.chart) { this.chart.destroy(); this.chart = null; }
+          const ctx = document.getElementById('chart');
+          const isPie = this.type === 'pie';
+          this.chart = new Chart(ctx, {
+            type: this.type,
+            data: {
+              labels: this.produits.map(p => p.design),
+              datasets: [{
+                label: 'Montant (Ar)',
+                data: this.montants,
+                backgroundColor: isPie ? COLORS : COLORS,
+                borderColor:     isPie ? BORDERS : BORDERS,
+                borderWidth:     isPie ? 2 : 0,
+                borderRadius:    this.type==='bar' ? 6 : 0,
+                tension:         0.4,
+                fill:            this.type==='line',
+                pointBackgroundColor: COLORS,
+                pointRadius:     this.type==='line' ? 5 : 0,
+              }]
+            },
+            options: {
+              responsive:true, maintainAspectRatio:false,
+              plugins: {
+                legend: {
+                  display: isPie,
+                  labels: { color:'#e2e8f0', font:{family:'DM Sans',size:12}, padding:14 }
+                },
+                tooltip: {
+                  backgroundColor:'#0d1120', borderColor:'rgba(255,255,255,0.07)', borderWidth:1,
+                  titleColor:'#e2e8f0', bodyColor:'#94a3b8', padding:12,
+                  callbacks: { label: ctx => '  '+Number(ctx.raw).toLocaleString('fr-FR')+' Ar' }
+                }
+              },
+              scales: isPie ? {} : {
+                x: { ticks:{color:'#475569',font:{family:'DM Sans',size:11}}, grid:{color:'rgba(255,255,255,0.03)'} },
+                y: {
+                  ticks:{color:'#475569',font:{family:'DM Sans',size:11}, callback:v=>Number(v).toLocaleString('fr-FR')+' Ar'},
+                  grid:{color:'rgba(255,255,255,0.03)'}
+                }
+              }
+            }
+          });
+        },
+        switchType(t) { this.type = t; this.buildChart(); }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

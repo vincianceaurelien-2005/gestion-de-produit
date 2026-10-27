@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Ajout Produit </title>
+  <link rel="stylesheet" href="style.css"/>
+  <script src="vue.global.prod.js"></script>
+   <script src="axios.min.js"></script>
+  <script src="chart.umd.min.js"></script>
+  <script src="navbar.js"></script>
+</head>
+<body>
+  <div class="bg-fx"></div>
+  <div class="bg-grid"></div>
+  <div id="navbar"></div>
+
+  <div id="app">
+    <div class="page">
+      <div class="page-head">
+        <h1>➕ Ajouter un Produit</h1>
+        <p>Remplissez le formulaire ci-dessous pour enregistrer un nouveau produit.</p>
+      </div>
+
+      <!-- Formulaire -->
+      <div class="card">
+        <div class="card-title">📝 Informations du produit</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Désignation (Design) *</label>
+            <input v-model="form.design" type="text" placeholder="Ex: Ordinateur portable Dell"/>
+          </div>
+          <div class="form-group">
+            <label>Prix unitaire (Ar) *</label>
+            <input v-model="form.prix" type="number" min="0" step="0.01" placeholder="Ex: 850000"/>
+          </div>
+          <div class="form-group">
+            <label>Quantité *</label>
+            <input v-model="form.quantite" type="number" min="0" placeholder="Ex: 5"/>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary" @click="ajouter" :disabled="loading">
+            <span v-if="loading" class="spin"></span>
+            <span v-else>➕</span>
+            {{ loading ? 'Enregistrement…' : 'Ajouter le produit' }}
+          </button>
+          <button class="btn btn-ghost" @click="reset">✖ Réinitialiser</button>
+        </div>
+        <div v-if="msg" :class="['alert', ok?'alert-success':'alert-error']" style="margin-top:14px;">
+          {{ ok ? '✅' : '❌' }} {{ msg }}
+        </div>
+      </div>
+
+      <!-- Aperçu montant -->
+      <div class="card" v-if="form.prix > 0 && form.quantite > 0">
+        <div class="card-title">💡 Aperçu du montant</div>
+        <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
+          <span style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--accent);">
+            {{ montant.toLocaleString('fr-FR') }} Ar
+          </span>
+          <span style="font-size:13px;color:var(--muted);">
+            = {{ form.prix }} Ar × {{ form.quantite }} unités
+          </span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer"><strong></strong> GestionProduit</div>
+
+  <script>
+    renderNavbar('ajout');
+    const { createApp } = Vue;
+    const API = 'http://localhost/AurelienVinciance/backend/produits.php';
+
+    createApp({
+      data() { return { form:{design:'',prix:'',quantite:''}, msg:'', ok:false, loading:false }; },
+      computed: {
+        montant() { return parseFloat(this.form.prix||0) * parseInt(this.form.quantite||0); }
+      },
+      methods: {
+        async ajouter() {
+          if (!this.form.design.trim() || !this.form.prix || !this.form.quantite) {
+            this.msg = 'Veuillez remplir tous les champs.'; this.ok = false; return;
+          }
+          this.loading = true; this.msg = '';
+          try {
+            const r = await axios.post(API, {
+              design:   this.form.design.trim(),
+              prix:     parseFloat(this.form.prix),
+              quantite: parseInt(this.form.quantite)
+            });
+            this.msg = r.data.message; this.ok = r.data.success;
+            if (r.data.success) this.reset(false);
+          } catch(e) {
+            this.msg = e.response?.data?.message || 'Insertion échouée'; this.ok = false;
+          } finally { this.loading = false; }
+        },
+        reset(clearMsg = true) {
+          this.form = {design:'',prix:'',quantite:''};
+          if (clearMsg) { this.msg = ''; }
+          else setTimeout(() => this.msg = '', 4000);
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>
